@@ -7,7 +7,8 @@ from typing import Optional, Tuple, List
 from .constants import BLACK, BOARD_SIZE, EMPTY, PLAYER_COLORS, PLAYER_NAMES, WHITE
 from .engine import OthelloGame
 from .greedy_ai import GreedyAI
-
+from search.minimax import get_best_move
+from tests.test_minimax import simple_heuristic
 Coord = Tuple[int, int]
 
 
@@ -500,6 +501,7 @@ class OthelloUI(tk.Tk):
             else self.white_difficulty_var.get().lower()
         )
         move = self.ai.choose_move(self.game, difficulty=difficulty)
+        #move, score = get_best_move(self.game, depth=2, heuristic_func=simple_heuristic)
         if move is None:
             self._refresh_ui()
             return

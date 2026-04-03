@@ -16,6 +16,8 @@ othello_project/
 │   ├── engine.py
 │   ├── greedy_ai.py
 │   └── ui.py
+├── search/
+│   ├── minimax.py
 └── tests/
     └── test_engine.py
 ```
