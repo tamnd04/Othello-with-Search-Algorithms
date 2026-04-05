@@ -19,8 +19,11 @@ move_priority = [
     [5, 2, 4, 3, 3, 4, 2, 5]
 ]
 
+FLAT_PRIORITY = {(r, c): move_priority[r][c] for r in range(8) for c in range(8)}
+
 def order_move(valid_moves: list) -> list:
-    return sorted(valid_moves, key=lambda move: move_priority[move[0]][move[1]], reverse=True)
+    # Uses flat dictionary get directly instead of a lambda function
+    return sorted(valid_moves, key=FLAT_PRIORITY.get, reverse=True)
 
 def board_to_key(game: OthelloGame):
     return (str(game.board), game.current_player)
@@ -58,12 +61,12 @@ def minimax_order(
             if alpha >= beta:
                 return tt_score 
 
-    # --- MOVE ORDERING ---
-    valid_moves = order_move(list(game.legal_moves().keys()))
+    valid_moves = list(game.legal_moves().keys())
     
     if tt_best_move and tt_best_move in valid_moves:
-        valid_moves.remove(tt_best_move)
-        valid_moves.insert(0, tt_best_move)
+        ordered_moves = [tt_best_move] + order_move([m for m in valid_moves if m != tt_best_move])
+    else:
+        ordered_moves = order_move(valid_moves)
     
     best_move_this_node = None
     
@@ -71,11 +74,10 @@ def minimax_order(
         maxEval = float('-inf')
         original_alpha = alpha
         
-        for move_coord in valid_moves:
+        for move_coord in ordered_moves:
             current_player = game.current_player
             game.apply_move(move_coord[0], move_coord[1])
             
-            # Handle consecutive turns if opponent has no legal moves
             next_is_max = not is_max if game.current_player != current_player else is_max
             eval_score = minimax_order(game, depth - 1, alpha, beta, next_is_max, heuristic_func)
             
@@ -95,7 +97,8 @@ def minimax_order(
         elif maxEval >= beta:
             flag = LOWERBOUND
             
-        if key not in transposition_table or depth >= transposition_table.get(key, {}).get('depth', -1):
+        tt_entry = transposition_table.get(key)
+        if tt_entry is None or depth >= tt_entry['depth']:
             transposition_table[key] = {
                 'score': maxEval, 
                 'flag': flag, 
@@ -109,7 +112,7 @@ def minimax_order(
         minEval = float('inf')
         original_beta = beta
         
-        for move_coord in valid_moves:
+        for move_coord in ordered_moves:
             current_player = game.current_player
             game.apply_move(move_coord[0], move_coord[1])
 
@@ -132,7 +135,8 @@ def minimax_order(
         elif minEval >= original_beta:
             flag = LOWERBOUND
             
-        if key not in transposition_table or depth >= transposition_table.get(key, {}).get('depth', -1):
+        tt_entry = transposition_table.get(key)
+        if tt_entry is None or depth >= tt_entry['depth']:
             transposition_table[key] = {
                 'score': minEval, 
                 'flag': flag, 
@@ -168,11 +172,11 @@ def get_best_move(
         best_move_this_depth = None
         best_score_this_depth = float('-inf')
         
-        ordered_moves = order_move(valid_moves)
-        
-        if best_move_overall and best_move_overall in ordered_moves:
-            ordered_moves.remove(best_move_overall)
-            ordered_moves.insert(0, best_move_overall)
+        # OPTIMIZATION 2 applied to the root iterative deepening loop
+        if best_move_overall and best_move_overall in valid_moves:
+            ordered_moves = [best_move_overall] + order_move([m for m in valid_moves if m != best_move_overall])
+        else:
+            ordered_moves = order_move(valid_moves)
         
         for move_coord in ordered_moves:
             if time.time() - start_time > time_limit:

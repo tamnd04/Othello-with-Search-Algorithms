@@ -9,7 +9,7 @@ from othello.constants import BLACK, WHITE, EMPTY
 from othello.greedy_ai import GreedyAI
 from search.minimaxorder import get_best_move
 from search.mcts import get_best_move_mcts
-from tests.test_minimax import simple_heuristic
+from tests.test_minimax import simple_heuristic, smart_heuristic
 
 # ---------------------------------------------------------
 # 1. AI WRAPPER FUNCTIONS
@@ -24,7 +24,7 @@ def mcts_agent(game: OthelloGame) -> Tuple[int, int]:
 
 def minimax_agent(game: OthelloGame) -> Tuple[int, int]:
     # 6 Depth, 4.5 second time limit
-    move, score = get_best_move(game, max_depth=6, heuristic_func=simple_heuristic, time_limit=5)
+    move, score = get_best_move(game, max_depth=6, heuristic_func=smart_heuristic, time_limit=10)
     return move
 
 # Dictionary to easily reference the agents by name
@@ -133,9 +133,9 @@ if __name__ == "__main__":
     }
     
     # 1. Greedy vs MCTS (10 Games)
-    w1, w2, draws = run_matchup("Greedy (Hard)", "MCTS (200 Iterations)", total_games=10)
-    global_scores["Greedy (Hard)"] += w1
-    global_scores["MCTS (200 Iterations)"] += w2
+    #w1, w2, draws = run_matchup("Greedy (Hard)", "MCTS (200 Iterations)", total_games=10)
+    #global_scores["Greedy (Hard)"] += w1
+    #global_scores["MCTS (200 Iterations)"] += w2
     
     # 2. Greedy vs Minimax (10 Games)
     w1, w2, draws = run_matchup("Greedy (Hard)", "Minimax (Depth 6)", total_games=10)
