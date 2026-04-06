@@ -7,7 +7,7 @@ from typing import Optional, Tuple, List
 from .constants import BLACK, BOARD_SIZE, EMPTY, PLAYER_COLORS, PLAYER_NAMES, WHITE
 from .engine import OthelloGame
 from .greedy_ai import GreedyAI
-from search.minimaxorder import get_best_move
+from search.minimaxorder import get_best_move_minimax
 from search.mcts import get_best_move_mcts
 
 from tests.test_minimax import simple_heuristic, smart_heuristic
@@ -506,12 +506,12 @@ class OthelloUI(tk.Tk):
 
         #Choose AI to play manual
         #GREEDY: move = self.ai.choose_move(self.game, difficulty=difficulty)
-        #MINIMAX: move, score = get_best_move(self.game, depth=2, heuristic_func=simple_heuristic)
+        #MINIMAX: move, score = get_best_move_minimax(self.game, depth=2, heuristic_func=simple_heuristic)
         #MCTS: move = get_best_move_mcts(self.game, debug=False)
         if (self.game.current_player == BLACK):
             move = get_best_move_mcts(self.game, iterations=150, dept_roll=20)
         else :
-            move, score = get_best_move(self.game, max_depth=6, heuristic_func=smart_heuristic,time_limit=10)
+            move, score = get_best_move_minimax(self.game, max_depth=6, heuristic_func=smart_heuristic,time_limit=10)
 
 
         if move is None:

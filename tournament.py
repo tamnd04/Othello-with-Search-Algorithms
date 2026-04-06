@@ -7,7 +7,7 @@ from othello.constants import BLACK, WHITE, EMPTY
 
 # Import AI agents
 from othello.greedy_ai import GreedyAI
-from search.minimaxorder import get_best_move
+from search.minimaxorder import get_best_move_minimax
 from search.mcts import get_best_move_mcts
 from tests.test_minimax import simple_heuristic, smart_heuristic
 
@@ -21,7 +21,7 @@ def mcts_agent(game: OthelloGame) -> Tuple[int, int]:
     return get_best_move_mcts(game, iterations=300, dept_roll=20)
 
 def minimax_agent(game: OthelloGame) -> Tuple[int, int]:
-    move, score = get_best_move(game, max_depth=6, heuristic_func=smart_heuristic, time_limit=10)
+    move, score = get_best_move_minimax(game, max_depth=6, heuristic_func=smart_heuristic, time_limit=10)
     return move
 
 # Dictionary to easily reference the agents by name

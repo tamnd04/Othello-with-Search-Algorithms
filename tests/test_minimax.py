@@ -2,7 +2,7 @@ import unittest
 from othello.constants import BOARD_SIZE, BLACK, EMPTY, WHITE
 from othello.engine import OthelloGame
 
-from search.minimaxorder import get_best_move 
+from search.minimaxorder import get_best_move_minimax 
 def smart_heuristic(game: OthelloGame) -> float:
     player = game.current_player
     opponent = game.opponent(player)
@@ -65,7 +65,7 @@ class TestMinimax(unittest.TestCase):
         """
         game = setup_custom_board(board_str, current_turn=BLACK)
         
-        best_move, score = get_best_move(game, max_depth=2, heuristic_func=simple_heuristic)
+        best_move, score = get_best_move_minimax(game, max_depth=2, heuristic_func=simple_heuristic)
         
         self.assertEqual(best_move, (0, 7), "FAILED")
 
@@ -86,7 +86,7 @@ class TestMinimax(unittest.TestCase):
         """
         game = setup_custom_board(board_str, current_turn=BLACK)
         
-        best_move, score = get_best_move(game, max_depth=3, heuristic_func=simple_heuristic)
+        best_move, score = get_best_move_minimax(game, max_depth=3, heuristic_func=simple_heuristic)
         
         self.assertEqual(best_move, (7, 7), "FAILED")
     

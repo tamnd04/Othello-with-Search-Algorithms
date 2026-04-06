@@ -166,7 +166,7 @@ def minimax_order(
         return minEval
 
 
-def get_best_move(
+def get_best_move_minimax(
     game: OthelloGame, 
     max_depth: int, 
     heuristic_func: Callable[[OthelloGame], float],
