@@ -2,8 +2,6 @@ import unittest
 from othello.constants import BOARD_SIZE, BLACK, EMPTY, WHITE
 from othello.engine import OthelloGame
 
-# Giả sử hàm get_best_move của bạn nằm trong file ai.py
-# (Hãy sửa lại đường dẫn import này cho đúng với project của bạn nhé)
 from search.minimaxorder import get_best_move 
 def smart_heuristic(game: OthelloGame) -> float:
     player = game.current_player
@@ -51,16 +49,15 @@ def setup_custom_board(board_string: str, current_turn: str) -> OthelloGame:
 
 class TestMinimax(unittest.TestCase):
 
-    def test_mate_in_one(self):
+    def test_1(self):
         """
-        Test 1: AI (Đen) có một nước đi lật cờ để kết thúc ván và Thắng.
-        Nó PHẢI chọn được nước đi đó thay vì các nước đi khác.
+        Test 1: 
         """
         board_str = """
         ........
         ......W.
         .....W..
-        ....BW..
+        ....B...
         ........
         ........
         ........
@@ -70,23 +67,19 @@ class TestMinimax(unittest.TestCase):
         
         best_move, score = get_best_move(game, max_depth=2, heuristic_func=simple_heuristic)
         
-        self.assertEqual(best_move, (0, 7), "AI đã không tìm ra nước đi Win in 1!")
+        self.assertEqual(best_move, (0, 7), "FAILED")
 
 
-    def test_force_opponent_to_pass(self):
+    def test_2(self):
         """
-        Test 2: AI (Đen) đứng trước 2 lựa chọn.
-        Một lựa chọn bình thường, và một lựa chọn khiến Trắng bị PASS (mất lượt).
-        AI PHẢI tìm ra nước đi ép đối thủ Pass.
+        Test 2: 
         """
-        # Bàn cờ kịch bản:
-        # Nếu Đen đánh (7, 7) -> Trắng mất lượt.
         board_str = """
         BBBBBBBB
         BBBBBBBB
         BBBBBBBB
         BBBBBBBW
-        BBBBBB.W
+        BBBBBBWW
         BBBBBB.W
         BBBBBB.W
         BBBBBB..
@@ -94,13 +87,9 @@ class TestMinimax(unittest.TestCase):
         game = setup_custom_board(board_str, current_turn=BLACK)
         
         best_move, score = get_best_move(game, max_depth=3, heuristic_func=simple_heuristic)
-        game.apply_move(best_move[0], best_move[1])
-        best_move, score  = get_best_move(game, max_depth=3, heuristic_func=simple_heuristic)
         
-        if (not best_move):
-            print("hu")
-            return
-        self.assertEqual(best_move, (7, 7), "AI đã không biết cách ép đối thủ mất lượt!")
+        self.assertEqual(best_move, (7, 7), "FAILED")
+    
 
 
 if __name__ == '__main__':

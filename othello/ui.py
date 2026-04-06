@@ -503,13 +503,17 @@ class OthelloUI(tk.Tk):
             if self.game.current_player == BLACK
             else self.white_difficulty_var.get().lower()
         )
-        #move = self.ai.choose_move(self.game, difficulty=difficulty)
-        #move, score = get_best_move(self.game, depth=2, heuristic_func=simple_heuristic)
-        #move = get_best_move_mcts(self.game, debug=False)
+
+        #Choose AI to play manual
+        #GREEDY: move = self.ai.choose_move(self.game, difficulty=difficulty)
+        #MINIMAX: move, score = get_best_move(self.game, depth=2, heuristic_func=simple_heuristic)
+        #MCTS: move = get_best_move_mcts(self.game, debug=False)
         if (self.game.current_player == BLACK):
-            move = get_best_move_mcts(self.game, iterations=150, debug=False, dept_roll=20)
+            move = get_best_move_mcts(self.game, iterations=150, dept_roll=20)
         else :
             move, score = get_best_move(self.game, max_depth=6, heuristic_func=smart_heuristic,time_limit=10)
+
+
         if move is None:
             self._refresh_ui()
             return

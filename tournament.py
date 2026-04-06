@@ -1,11 +1,11 @@
 import time
 from typing import Callable, Tuple
 
-# Import your game engine and constants
+# Import game engine and constants
 from othello.engine import OthelloGame
 from othello.constants import BLACK, WHITE, EMPTY
 
-# Import your AI agents
+# Import AI agents
 from othello.greedy_ai import GreedyAI
 from search.minimaxorder import get_best_move
 from search.mcts import get_best_move_mcts
@@ -15,23 +15,20 @@ from tests.test_minimax import simple_heuristic, smart_heuristic
 # 1. AI WRAPPER FUNCTIONS
 # ---------------------------------------------------------
 def greedy_hard_agent(game: OthelloGame) -> Tuple[int, int]:
-    # Use your GreedyAI with "Hard" difficulty
     return GreedyAI().choose_move(game, difficulty="hard")
 
 def mcts_agent(game: OthelloGame) -> Tuple[int, int]:
-    # 200 Iterations, 20 Depth Rollout
-    return get_best_move_mcts(game, iterations=300, debug=False, dept_roll=20)
+    return get_best_move_mcts(game, iterations=300, dept_roll=20)
 
 def minimax_agent(game: OthelloGame) -> Tuple[int, int]:
-    # 6 Depth, 4.5 second time limit
     move, score = get_best_move(game, max_depth=6, heuristic_func=smart_heuristic, time_limit=10)
     return move
 
 # Dictionary to easily reference the agents by name
 AGENTS = {
     "Greedy (Hard)": greedy_hard_agent,
-    "MCTS (200 Iterations)": mcts_agent,
-    "Minimax (Depth 6)": minimax_agent
+    "MCTS": mcts_agent,
+    "Minimax": minimax_agent
 }
 
 # ---------------------------------------------------------
@@ -133,19 +130,19 @@ if __name__ == "__main__":
     }
     
     # 1. Greedy vs MCTS (10 Games)
-    #w1, w2, draws = run_matchup("Greedy (Hard)", "MCTS (200 Iterations)", total_games=10)
-    #global_scores["Greedy (Hard)"] += w1
-    #global_scores["MCTS (200 Iterations)"] += w2
+    w1, w2, draws = run_matchup("Greedy (Hard)", "MCTS", total_games=10)
+    global_scores["Greedy (Hard)"] += w1
+    global_scores["MCTS"] += w2
     
     # 2. Greedy vs Minimax (10 Games)
-    w1, w2, draws = run_matchup("Greedy (Hard)", "Minimax (Depth 6)", total_games=10)
+    w1, w2, draws = run_matchup("Greedy (Hard)", "Minimax", total_games=10)
     global_scores["Greedy (Hard)"] += w1
-    global_scores["Minimax (Depth 6)"] += w2
+    global_scores["Minimax"] += w2
     
     # 3. MCTS vs Minimax (10 Games)
-    w1, w2, draws = run_matchup("MCTS (200 Iterations)", "Minimax (Depth 6)", total_games=10)
-    global_scores["MCTS (200 Iterations)"] += w1
-    global_scores["Minimax (Depth 6)"] += w2
+    w1, w2, draws = run_matchup("MCTS", "Minimax", total_games=10)
+    global_scores["MCTS"] += w1
+    global_scores["Minimax"] += w2
     
     print("\n==================================================")
     print(" TOURNAMENT COMPLETE - FINAL WIN PERCENTAGES")
