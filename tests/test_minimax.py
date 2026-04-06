@@ -68,7 +68,7 @@ class TestMinimax(unittest.TestCase):
         """
         game = setup_custom_board(board_str, current_turn=BLACK)
         
-        best_move = get_best_move(game, depth=2, heuristic_func=simple_heuristic)
+        best_move, score = get_best_move(game, max_depth=2, heuristic_func=simple_heuristic)
         
         self.assertEqual(best_move, (0, 7), "AI đã không tìm ra nước đi Win in 1!")
 
@@ -93,9 +93,9 @@ class TestMinimax(unittest.TestCase):
         """
         game = setup_custom_board(board_str, current_turn=BLACK)
         
-        best_move = get_best_move(game, depth=3, heuristic_func=simple_heuristic)
+        best_move, score = get_best_move(game, max_depth=3, heuristic_func=simple_heuristic)
         game.apply_move(best_move[0], best_move[1])
-        best_move = get_best_move(game, depth=3, heuristic_func=simple_heuristic)
+        best_move, score  = get_best_move(game, max_depth=3, heuristic_func=simple_heuristic)
         
         if (not best_move):
             print("hu")
