@@ -1,16 +1,30 @@
+"""Tkinter-based graphical user interface for Othello.
+
+Provides an interactive board, a sidebar with match status and controls,
+and support for three game modes:
+
+- **Human vs Human**    - two players share the same keyboard/mouse.
+- **Human vs Computer** - the human plays Black; the AI plays White.
+- **Computer vs Computer** - both sides are driven by AI agents, with
+  optional Auto Play or single-step controls.
+
+AI difficulty is mapped to an :class:`~search.model.OthelloAgent` at move
+time via :meth:`OthelloUI._agent_for_difficulty`:
+
+- `"easy"` / `"medium"` → :class:`~search.greedy.GreedyAgent`
+- `"hard"`                → :class:`~search.minimax.MinimaxAgent`
+"""
 from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk, messagebox
-from typing import Optional, Tuple, List
+from typing import List, Optional, Tuple
 
 from .constants import BLACK, BOARD_SIZE, EMPTY, PLAYER_COLORS, PLAYER_NAMES, WHITE
 from .engine import OthelloGame
-from .greedy_ai import GreedyAI
-from search.minimaxorder import get_best_move_minimax
-from search.mcts import get_best_move_mcts
-
-from tests.test_minimax import simple_heuristic, smart_heuristic
+from search.greedy import GreedyAgent
+from search.minimax import MinimaxAgent
+from search.model import OthelloAgent
 
 Coord = Tuple[int, int]
 
@@ -40,14 +54,14 @@ class OthelloUI(tk.Tk):
     FLIP_ANIMATION_FRAME_MS = 42
 
     def __init__(self) -> None:
+        """Initialise the application window, game state, and all UI widgets."""
         super().__init__()
-        self.title("Othello — Python GUI")
+        self.title("Othello - Python GUI")
         self.configure(bg=self.BG)
         self.geometry("1280x760")
         self.minsize(1180, 720)
 
         self.game = OthelloGame()
-        self.ai = GreedyAI()
         self.vs_computer = tk.BooleanVar(value=False)
         self.computer_vs_computer = tk.BooleanVar(value=False)
         self.cvc_autoplay = tk.BooleanVar(value=False)
@@ -66,6 +80,7 @@ class OthelloUI(tk.Tk):
         self._refresh_ui()
 
     def _configure_style(self) -> None:
+        """Apply a dark-theme ttk style used by sidebar widgets."""
         style = ttk.Style(self)
         try:
             style.theme_use("clam")
@@ -108,6 +123,7 @@ class OthelloUI(tk.Tk):
         # Keep combobox styling conservative for reliable click behavior on Windows Tk.
 
     def _build_layout(self) -> None:
+        """Construct the two-column layout: board canvas on the left, sidebar on the right."""
         self.columnconfigure(0, weight=5)
         self.columnconfigure(1, weight=3)
         self.rowconfigure(0, weight=1)
@@ -281,12 +297,31 @@ class OthelloUI(tk.Tk):
         log_card.columnconfigure(0, weight=1)
 
     def _make_card(self, parent: tk.Widget, title: str) -> ttk.Frame:
+        """Create a titled card frame used to group related sidebar sections.
+
+        Args:
+            parent: The parent widget.
+            title:  Card heading text.
+
+        Returns:
+            A configured :class:`ttk.Frame` with the title label already placed.
+        """
         frame = ttk.Frame(parent, style="Card.TFrame", padding=16)
         frame.columnconfigure(0, weight=1)
         ttk.Label(frame, text=title, style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
         return frame
 
     def _make_button(self, parent: tk.Widget, text: str, command) -> tk.Button:
+        """Create a uniformly styled accent button.
+
+        Args:
+            parent:  The parent widget.
+            text:    Button label text.
+            command: Callback invoked on click.
+
+        Returns:
+            A configured :class:`tk.Button`.
+        """
         return tk.Button(
             parent,
             text=text,
@@ -305,6 +340,7 @@ class OthelloUI(tk.Tk):
         )
 
     def _toggle_human_vs_computer(self) -> None:
+        """Handle the Human vs Computer checkbox toggle."""
         if self.vs_computer.get() and self.computer_vs_computer.get():
             self.computer_vs_computer.set(False)
         if not self.computer_vs_computer.get():
@@ -315,6 +351,7 @@ class OthelloUI(tk.Tk):
         self.after(120, self._maybe_play_ai_turn)
 
     def _toggle_computer_vs_computer(self) -> None:
+        """Handle the Computer vs Computer checkbox toggle."""
         if self.computer_vs_computer.get() and self.vs_computer.get():
             self.vs_computer.set(False)
         if not self.computer_vs_computer.get():
@@ -324,6 +361,7 @@ class OthelloUI(tk.Tk):
         self.after(120, self._maybe_play_ai_turn)
 
     def _toggle_cvc_autoplay(self) -> None:
+        """Toggle Auto Play in Computer vs Computer mode on or off."""
         if not self.computer_vs_computer.get():
             return
         self.cvc_autoplay.set(not self.cvc_autoplay.get())
@@ -332,6 +370,7 @@ class OthelloUI(tk.Tk):
             self.after(120, self._maybe_play_ai_turn)
 
     def _step_cvc_once(self) -> None:
+        """Advance exactly one AI move when Auto Play is off ("Step" button)."""
         if not self.computer_vs_computer.get() or self.game.is_game_over():
             return
         if self.flip_animation_cells:
@@ -339,6 +378,7 @@ class OthelloUI(tk.Tk):
         self.after(20, lambda: self._maybe_play_ai_turn(force_once=True))
 
     def _sync_mode_controls(self) -> None:
+        """Show or hide difficulty dropdowns and CvC buttons to match the active mode."""
         show_hvc = self.vs_computer.get() and not self.computer_vs_computer.get()
         show_cvc = self.computer_vs_computer.get()
 
@@ -376,6 +416,7 @@ class OthelloUI(tk.Tk):
             self.cvc_button_row.grid_remove()
 
     def _is_ai_turn(self) -> bool:
+        """Return `True` if the AI should make the next move in the current mode."""
         if self.game.is_game_over():
             return False
         if self.computer_vs_computer.get():
@@ -383,11 +424,13 @@ class OthelloUI(tk.Tk):
         return self.vs_computer.get() and self.game.current_player == WHITE
 
     def _on_difficulty_change(self, _: tk.Event) -> None:
+        """React to a difficulty combobox selection change."""
         self._refresh_ui()
         if self.computer_vs_computer.get() and self.cvc_autoplay.get():
             self.after(80, self._maybe_play_ai_turn)
 
     def _new_game(self) -> None:
+        """Reset the board to the opening position and clear the move log."""
         self._stop_flip_animation()
         self.game.reset()
         self.move_counter = 0
@@ -400,6 +443,11 @@ class OthelloUI(tk.Tk):
         self.after(120, self._maybe_play_ai_turn)
 
     def _undo(self) -> None:
+        """Undo the last move(s) and redraw the board.
+
+        In Human vs Computer mode both the human's move and the AI response
+        are undone together so the human is always left with a choice to make.
+        """
         self._stop_flip_animation()
         undone = False
         if self.vs_computer.get():
@@ -421,10 +469,16 @@ class OthelloUI(tk.Tk):
         self._refresh_ui()
 
     def _flash_hint(self) -> None:
+        """Toggle legal-move hint dots on or off."""
         self.show_hints.set(not self.show_hints.get())
         self._refresh_ui()
 
     def _on_canvas_click(self, event: tk.Event) -> None:
+        """Handle a mouse click on the board canvas.
+
+        Ignores clicks when it is the AI's turn, a flip animation is running,
+        or the clicked cell is not a legal move.
+        """
         move = self._event_to_cell(event.x, event.y)
         if move is None or self.game.is_game_over():
             return
@@ -441,14 +495,25 @@ class OthelloUI(tk.Tk):
         self._play_move(move)
 
     def _on_canvas_motion(self, event: tk.Event) -> None:
+        """Track the hovered cell to highlight it on the canvas."""
         self.hovered_cell = self._event_to_cell(event.x, event.y)
         self._draw_board()
 
     def _on_canvas_leave(self, _: tk.Event) -> None:
+        """Clear the hover highlight when the cursor leaves the canvas."""
         self.hovered_cell = None
         self._draw_board()
 
     def _event_to_cell(self, x: int, y: int) -> Optional[Coord]:
+        """Convert canvas pixel coordinates to a `(row, col)` board cell.
+
+        Args:
+            x: Canvas x-coordinate in pixels.
+            y: Canvas y-coordinate in pixels.
+
+        Returns:
+            `(row, col)` if the point falls inside the board, else `None`.
+        """
         left = self.BOARD_PADDING
         top = self.BOARD_PADDING
         right = left + self.BOARD_PIXELS
@@ -462,6 +527,14 @@ class OthelloUI(tk.Tk):
         return int(row), int(col)
 
     def _play_move(self, move: Coord) -> None:
+        """Apply a move to the game, animate disc flips, and log the move.
+
+        Triggers :meth:`_maybe_play_ai_turn` after a short delay so the
+        AI can respond if it is the next player.
+
+        Args:
+            move: `(row, col)` of the square to place a disc on.
+        """
         row, col = move
         outcome = self.game.apply_move(row, col)
         self.move_counter += 1
@@ -487,39 +560,77 @@ class OthelloUI(tk.Tk):
 
         self.after(180, self._maybe_play_ai_turn)
 
+    def _agent_for_difficulty(self, difficulty: str) -> OthelloAgent:
+        """Return the appropriate AI agent for the given difficulty level.
+
+        Difficulty mapping:
+
+        - `"easy"`   → :class:`~search.greedy.GreedyAgent` (random moves)
+        - `"medium"` → :class:`~search.greedy.GreedyAgent` (greedy heuristic)
+        - `"hard"`   → :class:`~search.minimax.MinimaxAgent` (depth-6 alpha-beta)
+
+        Args:
+            difficulty: One of `"easy"`, `"medium"`, or `"hard"`
+                        (case-insensitive).
+
+        Returns:
+            A fresh :class:`~search.model.OthelloAgent` instance.
+        """
+        level = difficulty.strip().lower()
+        if level == "hard":
+            # Depth-6 iterative-deepening alpha-beta with a 10-second budget.
+            return MinimaxAgent(max_depth=6, time_limit=10.0)
+        # Easy and medium use the fast greedy agent at the matching level.
+        return GreedyAgent(difficulty=level)
+
     def _maybe_play_ai_turn(self, force_once: bool = False) -> None:
+        """Trigger one AI move if the current game state calls for it.
+
+        Called after every human move and whenever Auto Play is active in
+        Computer vs Computer mode. Guards against:
+
+        - Game already over.
+        - CvC mode with Auto Play off and no manual step request.
+        - A flip animation still in progress (retries after 60 ms).
+        - It not being an AI turn (e.g. human move expected).
+
+        Args:
+            force_once: When `True`, bypasses the Auto Play gate so that
+                        the "Step" button can advance exactly one AI move.
+        """
         if self.game.is_game_over():
             return
+
+        # In CvC mode without Auto Play, only advance when explicitly stepped.
         if self.computer_vs_computer.get() and not self.cvc_autoplay.get() and not force_once:
             return
+
+        # Delay until any running flip animation has finished.
         if self.flip_animation_cells:
             self.after(60, self._maybe_play_ai_turn)
             return
+
         if not self._is_ai_turn():
             return
 
+        # Resolve which difficulty level applies to the side currently moving.
         difficulty = (
-            self.black_difficulty_var.get().lower()
+            self.black_difficulty_var.get()
             if self.game.current_player == BLACK
-            else self.white_difficulty_var.get().lower()
+            else self.white_difficulty_var.get()
         )
 
-        #Choose AI to play manual
-        #GREEDY: move = self.ai.choose_move(self.game, difficulty=difficulty)
-        #MINIMAX: move, score = get_best_move_minimax(self.game, depth=2, heuristic_func=simple_heuristic)
-        #MCTS: move = get_best_move_mcts(self.game, debug=False)
-        if (self.game.current_player == BLACK):
-            move = get_best_move_mcts(self.game, iterations=150, dept_roll=20)
-        else :
-            move, score = get_best_move_minimax(self.game, max_depth=6, heuristic_func=smart_heuristic,time_limit=10)
-
+        agent = self._agent_for_difficulty(difficulty)
+        move  = agent.choose_move(self.game)
 
         if move is None:
             self._refresh_ui()
             return
+
         self._play_move(move)
 
     def _refresh_ui(self) -> None:
+        """Synchronise all sidebar labels and button states with the current game state."""
         scores = self.game.count_discs()
         self._sync_mode_controls()
         self.status_var.set(self.game.status_text())
@@ -548,6 +659,7 @@ class OthelloUI(tk.Tk):
         self._draw_board()
 
     def _stop_flip_animation(self) -> None:
+        """Cancel any running flip animation and reset animation state."""
         if self.flip_animation_job is not None:
             self.after_cancel(self.flip_animation_job)
             self.flip_animation_job = None
@@ -557,6 +669,12 @@ class OthelloUI(tk.Tk):
         self.flip_animation_to_player = None
 
     def _start_flip_animation(self, cells: List[Coord], to_player: str) -> None:
+        """Begin the disc-flip animation for a set of captured squares.
+
+        Args:
+            cells:     Squares whose discs are being flipped.
+            to_player: The player colour the flipped discs will become.
+        """
         self._stop_flip_animation()
 
         self.flip_animation_cells = cells
@@ -570,6 +688,7 @@ class OthelloUI(tk.Tk):
         self._advance_flip_animation()
 
     def _advance_flip_animation(self) -> None:
+        """Advance one frame of the flip animation and schedule the next via `after`."""
         if not self.flip_animation_cells:
             return
 
@@ -589,6 +708,7 @@ class OthelloUI(tk.Tk):
         )
 
     def _draw_board(self) -> None:
+        """Redraw the entire board canvas from scratch."""
         c = self.canvas
         c.delete("all")
 
@@ -601,6 +721,7 @@ class OthelloUI(tk.Tk):
         self._draw_discs()
 
     def _draw_board_shadow(self) -> None:
+        """Draw the drop-shadow beneath the board rectangle."""
         left = self.BOARD_PADDING
         top = self.BOARD_PADDING
         right = left + self.BOARD_PIXELS
@@ -615,6 +736,7 @@ class OthelloUI(tk.Tk):
         )
 
     def _draw_board_background(self) -> None:
+        """Draw the green board surface and border inset."""
         left = self.BOARD_PADDING
         top = self.BOARD_PADDING
         right = left + self.BOARD_PIXELS
@@ -639,6 +761,7 @@ class OthelloUI(tk.Tk):
         )
 
     def _draw_labels(self) -> None:
+        """Draw column letters (A–H) and row numbers (1–8) around the board edge."""
         for idx in range(BOARD_SIZE):
             x = self.BOARD_PADDING + idx * self.CELL_SIZE + self.CELL_SIZE / 2
             y = self.BOARD_PADDING + idx * self.CELL_SIZE + self.CELL_SIZE / 2
@@ -658,6 +781,7 @@ class OthelloUI(tk.Tk):
             )
 
     def _draw_grid(self) -> None:
+        """Draw the 8×8 grid lines and classic star-point markers."""
         left = self.BOARD_PADDING
         top = self.BOARD_PADDING
 
@@ -704,6 +828,7 @@ class OthelloUI(tk.Tk):
             )
 
     def _draw_hover(self) -> None:
+        """Highlight the cell under the cursor (yellow if legal, dim if not)."""
         if self.hovered_cell is None:
             return
         row, col = self.hovered_cell
@@ -716,6 +841,7 @@ class OthelloUI(tk.Tk):
         self.canvas.create_rectangle(x0, y0, x1, y1, outline=outline, width=3)
 
     def _draw_hints(self) -> None:
+        """Draw small green dots on every legal move square when hints are on."""
         if not self.show_hints.get() or self.game.is_game_over():
             return
 
@@ -731,6 +857,7 @@ class OthelloUI(tk.Tk):
             )
 
     def _draw_discs(self) -> None:
+        """Draw all discs, routing animating cells through the flip-transition renderer."""
         progress = 1.0
         if self.flip_animation_cells and self.FLIP_ANIMATION_STEPS > 1:
             progress = (self.flip_animation_step - 1) / (self.FLIP_ANIMATION_STEPS - 1)
@@ -750,6 +877,13 @@ class OthelloUI(tk.Tk):
                 self._draw_standard_disc(row, col, piece)
 
     def _draw_standard_disc(self, row: int, col: int, piece: str) -> None:
+        """Draw a static (non-animating) disc with a shadow and shine highlight.
+
+        Args:
+            row:   Board row index (0-based).
+            col:   Board column index (0-based).
+            piece: The player colour constant occupying this cell.
+        """
         x0, y0, x1, y1 = self._cell_bbox(row, col, padding=10)
         self.canvas.create_oval(x0 + 4, y0 + 5, x1 + 4, y1 + 5, fill="#000000", outline="")
         self.canvas.create_oval(
@@ -782,6 +916,17 @@ class OthelloUI(tk.Tk):
             )
 
     def _draw_flip_transition_disc(self, row: int, col: int, progress: float) -> None:
+        """Draw a disc mid-flip using a horizontal-squeeze illusion.
+
+        The horizontal radius is scaled from full → 0 → full across the
+        animation, crossing through 0 at `progress=0.5` where the disc
+        colour switches from the old player to the new player.
+
+        Args:
+            row:      Board row index (0-based).
+            col:      Board column index (0-based).
+            progress: Animation progress in `[0.0, 1.0]`.
+        """
         to_piece = self.flip_animation_to_player
         if to_piece is None:
             self._draw_standard_disc(row, col, self.game.get_cell(row, col))
@@ -841,11 +986,30 @@ class OthelloUI(tk.Tk):
         )
 
     def _cell_center(self, row: int, col: int) -> tuple[float, float]:
+        """Return the canvas pixel coordinates of the centre of a board cell.
+
+        Args:
+            row: Board row index (0-based).
+            col: Board column index (0-based).
+
+        Returns:
+            `(x, y)` canvas pixel coordinates.
+        """
         x = self.BOARD_PADDING + col * self.CELL_SIZE + self.CELL_SIZE / 2
         y = self.BOARD_PADDING + row * self.CELL_SIZE + self.CELL_SIZE / 2
         return x, y
 
     def _cell_bbox(self, row: int, col: int, padding: int = 0) -> tuple[int, int, int, int]:
+        """Return the bounding-box pixel coordinates for a board cell.
+
+        Args:
+            row:     Board row index (0-based).
+            col:     Board column index (0-based).
+            padding: Inset in pixels to shrink the bounding box on each side.
+
+        Returns:
+            `(x0, y0, x1, y1)` canvas pixel coordinates.
+        """
         x0 = self.BOARD_PADDING + col * self.CELL_SIZE + padding
         y0 = self.BOARD_PADDING + row * self.CELL_SIZE + padding
         x1 = self.BOARD_PADDING + (col + 1) * self.CELL_SIZE - padding
@@ -854,5 +1018,9 @@ class OthelloUI(tk.Tk):
 
 
 def launch_app() -> None:
+    """Create and run the Othello GUI application.
+
+    Blocks until the window is closed.
+    """
     app = OthelloUI()
     app.mainloop()

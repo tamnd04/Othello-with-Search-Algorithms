@@ -5,21 +5,29 @@ A polished Python/Tkinter Othello (Reversi) game with animated disc flips, undo 
 ## Project Structure
 
 ```text
-othello_project/
-├── main.py
-├── README.md
-├── requirements.txt
-├── .gitignore
-├── othello/
-│   ├── __init__.py
-│   ├── constants.py
+.
+├── heuristic
+│   ├── base.py             # base class from which all heuristics inherit
+│   ├── positional.py
+│   ├── simple.py
+│   ├── smart.py
+│   └── weight.py
+├── LICENSE
+├── main.py                 # CLI entry point
+├── othello
+│   ├── constants.py        # tunable parameters for search agents
 │   ├── engine.py
-│   ├── greedy_ai.py
 │   └── ui.py
-├── search/
+├── README.md
+├── search
+│   ├── greedy.py
+│   ├── mcts.py
 │   ├── minimax.py
-└── tests/
-    └── test_engine.py
+│   └── model.py            # base class from which all agents inherit
+└── tests
+    ├── test_engine.py
+    ├── test_minimax.py
+    └── tournament.py       # runs a series of games between two agents and reports the results
 ```
 
 ## Features
@@ -45,22 +53,26 @@ othello_project/
 ## Requirements
 
 - Python 3.10+ recommended
-- No third-party Python packages required (standard library only)
 
 ## Run
 
 ```bash
+# Run the Othello GUI application
 python main.py
+
+# Tournament - models with default heuristics
+python main.py --tournament --model1 minimax --model2 greedy
+
+# Tournament - models with explicit heuristics
+python main.py --tournament --model1 minimax --heuristic1 positional --model2 greedy --heuristic2 weight
 ```
 
-## Tests
+## Add a new model
+1. Implement the model in a new file under `search/`, e.g. `search/new.py` with a class `NewAgent` that inherits from `OthelloAgent`.
+2. Import the new model in `search/__init__.py` and add it to `__all__`.
+3. Import the new model in `main.py` and add it to `_MODEL_CHOICES` and the model factory logic in `main()`.
 
-```bash
-python -m unittest discover -s tests -v
-```
-
-## Future improvements
-- Replace the greedy AI with Minimax / Alpha-Beta search
-- Add stronger evaluation heuristics and deeper lookahead
-- Add board themes and additional UI customization
-- Export and replay match logs
+## Add a new heuristic
+1. Implement the heuristic in a new file under `heuristic/`, e.g. `heuristic/my_heuristic.py` with a class `MyHeuristic` that inherits from `OthelloHeuristic`.
+2. Import the new heuristic in `heuristic/__init__.py` and add it to `__all__`.
+3. Add the new heuristic to `_HEURISTIC_CHOICES` and the heuristic factory logic in `main()`.
