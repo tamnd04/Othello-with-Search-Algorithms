@@ -149,7 +149,8 @@ def _minimax(
     # --- Base Case ---
     # Stop recursing when the depth budget runs out or the game is finished.
     if depth == 0 or game.is_game_over():
-        return heuristic_func(game)
+        res = heuristic_func(game)
+        return res if is_max else res * -1  # Negate score for minimiser nodes to maintain perspective.
 
     key = _board_to_key(game)
     tt_best_move: Optional[Coord] = None
