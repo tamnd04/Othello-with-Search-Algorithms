@@ -8,21 +8,30 @@ and support for three game modes:
 - **Computer vs Computer** - both sides are driven by AI agents, with
   optional Auto Play or single-step controls.
 
-AI difficulty is mapped to an :class:`~search.model.OthelloAgent` at move
-time via :meth:`OthelloUI._agent_for_difficulty`:
+AI players are selected in the GUI and instantiated at move time via
+:meth:`OthelloUI._agent_for_config`, supporting:
 
-- `"easy"` / `"medium"` → :class:`~search.greedy.GreedyAgent`
-- `"hard"`                → :class:`~search.minimax.MinimaxAgent`
+- :class:`~search.greedy.GreedyAgent` (rule-based)
+- :class:`~search.minimax.MinimaxAgent` (search-based)
+- :class:`~search.mcts.MCTSAgent` (search-based)
+
+Each agent uses a user-selected skill level in the range 1..10.
 """
 from __future__ import annotations
 
+import math
+import os
+import statistics
+import time
 import tkinter as tk
 from tkinter import ttk, messagebox
 from typing import List, Optional, Tuple
 
+from heuristic import PositionalHeuristic, SimpleHeuristic, SmartHeuristic
 from .constants import BLACK, BOARD_SIZE, EMPTY, PLAYER_COLORS, PLAYER_NAMES, WHITE
 from .engine import OthelloGame
 from search.greedy import GreedyAgent
+from search.mcts import MCTSAgent
 from search.minimax import MinimaxAgent
 from search.model import OthelloAgent
 
@@ -30,7 +39,9 @@ Coord = Tuple[int, int]
 
 
 class OthelloUI(tk.Tk):
-    CELL_SIZE = 72
+    AGENT_CHOICES = ("Rule-based (Greedy)", "Minimax", "MCTS")
+
+    CELL_SIZE = 80
     BOARD_PADDING = 34
     BOARD_PIXELS = CELL_SIZE * BOARD_SIZE
     CANVAS_SIZE = BOARD_PIXELS + BOARD_PADDING * 2
@@ -58,15 +69,32 @@ class OthelloUI(tk.Tk):
         super().__init__()
         self.title("Othello - Python GUI")
         self.configure(bg=self.BG)
-        self.geometry("1280x760")
-        self.minsize(1180, 720)
+        self.geometry("1460x920")
+        self.minsize(1360, 860)
 
         self.game = OthelloGame()
         self.vs_computer = tk.BooleanVar(value=False)
         self.computer_vs_computer = tk.BooleanVar(value=False)
         self.cvc_autoplay = tk.BooleanVar(value=False)
-        self.white_difficulty_var = tk.StringVar(value="Medium")
-        self.black_difficulty_var = tk.StringVar(value="Medium")
+        self.white_agent_var = tk.StringVar(value="Rule-based (Greedy)")
+        self.black_agent_var = tk.StringVar(value="Rule-based (Greedy)")
+        self.white_level_var = tk.IntVar(value=6)
+        self.black_level_var = tk.IntVar(value=6)
+        self.white_ai_title_var = tk.StringVar(value="White AI Agent")
+        self.white_skill_var = tk.StringVar(value="")
+        self.black_skill_var = tk.StringVar(value="")
+
+        self.eval_search_agent_var = tk.StringVar(value="Minimax")
+        self.eval_search_level_var = tk.IntVar(value=8)
+        self.eval_opponent_agent_var = tk.StringVar(value="Rule-based (Greedy)")
+        self.eval_opponent_level_var = tk.IntVar(value=6)
+        self.eval_matches_var = tk.IntVar(value=20)
+        self.eval_progress_var = tk.DoubleVar(value=0.0)
+        self.eval_progress_text_var = tk.StringVar(value="Progress: 0 / 0")
+        self.eval_game_progress_var = tk.DoubleVar(value=0.0)
+        self.eval_game_progress_text_var = tk.StringVar(value="Current game: not started")
+        self.eval_output_path = os.path.join(os.getcwd(), "agent_evaluation_report.txt")
+
         self.show_hints = tk.BooleanVar(value=True)
         self.hovered_cell: Optional[Coord] = None
         self.move_counter = 0
@@ -215,42 +243,86 @@ class OthelloUI(tk.Tk):
         )
         cvc_toggle.grid(row=2, column=0, sticky="w", pady=(0, 8))
 
-        self.black_difficulty_label = ttk.Label(
-            controls_card,
-            text="Black AI Difficulty",
-            style="CardValue.TLabel",
+        self.black_ai_frame = tk.Frame(controls_card, bg=self.PANEL_ALT)
+        self.black_ai_frame.grid(row=3, column=0, sticky="ew", pady=(2, 8))
+        ttk.Label(self.black_ai_frame, text="Black AI Agent", style="CardValue.TLabel").grid(
+            row=0, column=0, sticky="w", columnspan=3
         )
-        self.black_difficulty_label.grid(row=3, column=0, sticky="w", pady=(2, 6))
-        self.black_difficulty_combo = ttk.Combobox(
-            controls_card,
+        self.black_agent_combo = ttk.Combobox(
+            self.black_ai_frame,
             state="readonly",
-            values=("Easy", "Medium", "Hard"),
-            textvariable=self.black_difficulty_var,
-            width=16,
+            values=self.AGENT_CHOICES,
+            textvariable=self.black_agent_var,
+            width=18,
         )
-        self.black_difficulty_combo.grid(row=4, column=0, sticky="w", pady=(0, 8))
-        self.black_difficulty_combo.bind("<<ComboboxSelected>>", self._on_difficulty_change)
-        self.black_difficulty_combo.configure(state="disabled")
+        self.black_agent_combo.grid(row=1, column=0, sticky="w", pady=(4, 0))
+        self.black_agent_combo.bind("<<ComboboxSelected>>", self._on_ai_config_change)
+        ttk.Label(self.black_ai_frame, text="Level", style="CardValue.TLabel").grid(
+            row=1, column=1, padx=(10, 4), sticky="w"
+        )
+        self.black_level_spin = tk.Spinbox(
+            self.black_ai_frame,
+            from_=1,
+            to=10,
+            textvariable=self.black_level_var,
+            width=4,
+            command=self._on_ai_config_change,
+            bg=self.PANEL_SOFT,
+            fg=self.TEXT,
+            insertbackground=self.TEXT,
+            readonlybackground=self.PANEL_SOFT,
+            buttonbackground=self.PANEL,
+            relief="flat",
+            highlightthickness=0,
+        )
+        self.black_level_spin.grid(row=1, column=2, sticky="w")
+        self.black_level_spin.bind("<FocusOut>", self._on_ai_config_change)
+        self.black_level_spin.bind("<Return>", self._on_ai_config_change)
+        ttk.Label(self.black_ai_frame, textvariable=self.black_skill_var, style="Muted.TLabel").grid(
+            row=2, column=0, sticky="w", columnspan=3, pady=(2, 0)
+        )
 
-        self.white_difficulty_label = ttk.Label(
-            controls_card,
-            text="White AI Difficulty",
-            style="CardValue.TLabel",
+        self.white_ai_frame = tk.Frame(controls_card, bg=self.PANEL_ALT)
+        self.white_ai_frame.grid(row=4, column=0, sticky="ew", pady=(2, 8))
+        ttk.Label(self.white_ai_frame, textvariable=self.white_ai_title_var, style="CardValue.TLabel").grid(
+            row=0, column=0, sticky="w", columnspan=3
         )
-        self.white_difficulty_label.grid(row=5, column=0, sticky="w", pady=(2, 6))
-        self.white_difficulty_combo = ttk.Combobox(
-            controls_card,
+        self.white_agent_combo = ttk.Combobox(
+            self.white_ai_frame,
             state="readonly",
-            values=("Easy", "Medium", "Hard"),
-            textvariable=self.white_difficulty_var,
-            width=16,
+            values=self.AGENT_CHOICES,
+            textvariable=self.white_agent_var,
+            width=18,
         )
-        self.white_difficulty_combo.grid(row=6, column=0, sticky="w", pady=(0, 8))
-        self.white_difficulty_combo.bind("<<ComboboxSelected>>", self._on_difficulty_change)
-        self.white_difficulty_combo.configure(state="disabled")
+        self.white_agent_combo.grid(row=1, column=0, sticky="w", pady=(4, 0))
+        self.white_agent_combo.bind("<<ComboboxSelected>>", self._on_ai_config_change)
+        ttk.Label(self.white_ai_frame, text="Level", style="CardValue.TLabel").grid(
+            row=1, column=1, padx=(10, 4), sticky="w"
+        )
+        self.white_level_spin = tk.Spinbox(
+            self.white_ai_frame,
+            from_=1,
+            to=10,
+            textvariable=self.white_level_var,
+            width=4,
+            command=self._on_ai_config_change,
+            bg=self.PANEL_SOFT,
+            fg=self.TEXT,
+            insertbackground=self.TEXT,
+            readonlybackground=self.PANEL_SOFT,
+            buttonbackground=self.PANEL,
+            relief="flat",
+            highlightthickness=0,
+        )
+        self.white_level_spin.grid(row=1, column=2, sticky="w")
+        self.white_level_spin.bind("<FocusOut>", self._on_ai_config_change)
+        self.white_level_spin.bind("<Return>", self._on_ai_config_change)
+        ttk.Label(self.white_ai_frame, textvariable=self.white_skill_var, style="Muted.TLabel").grid(
+            row=2, column=0, sticky="w", columnspan=3, pady=(2, 0)
+        )
 
         button_row = tk.Frame(controls_card, bg=self.PANEL_ALT)
-        button_row.grid(row=7, column=0, sticky="ew")
+        button_row.grid(row=5, column=0, sticky="ew")
 
         self._make_button(button_row, "New Game", self._new_game).grid(row=0, column=0, padx=(0, 8), pady=4)
         self._make_button(button_row, "Undo", self._undo).grid(row=0, column=1, padx=(0, 8), pady=4)
@@ -259,7 +331,7 @@ class OthelloUI(tk.Tk):
         self.hint_button.grid(row=0, column=2, pady=4)
 
         self.cvc_button_row = tk.Frame(controls_card, bg=self.PANEL_ALT)
-        self.cvc_button_row.grid(row=8, column=0, sticky="w", pady=(4, 0))
+        self.cvc_button_row.grid(row=6, column=0, sticky="w", pady=(4, 0))
 
         self.autoplay_button = self._make_button(self.cvc_button_row, "Auto Play", self._toggle_cvc_autoplay)
         self.autoplay_button.configure(width=10, state="disabled")
@@ -275,9 +347,126 @@ class OthelloUI(tk.Tk):
             row=1, column=0, sticky="w", pady=(8, 0)
         )
 
+        eval_card = self._make_card(sidebar, "Agent Evaluation")
+        eval_card.grid(row=5, column=0, sticky="ew", pady=(0, 14))
+
+        ttk.Label(eval_card, text="Agent A", style="CardValue.TLabel").grid(
+            row=1, column=0, sticky="w", pady=(8, 4)
+        )
+        self.eval_search_combo = ttk.Combobox(
+            eval_card,
+            state="readonly",
+            values=self.AGENT_CHOICES,
+            textvariable=self.eval_search_agent_var,
+            width=20,
+        )
+        self.eval_search_combo.grid(row=2, column=0, sticky="w")
+
+        ttk.Label(eval_card, text="Agent B", style="CardValue.TLabel").grid(
+            row=3, column=0, sticky="w", pady=(6, 4)
+        )
+        self.eval_opponent_combo = ttk.Combobox(
+            eval_card,
+            state="readonly",
+            values=self.AGENT_CHOICES,
+            textvariable=self.eval_opponent_agent_var,
+            width=20,
+        )
+        self.eval_opponent_combo.grid(row=4, column=0, sticky="w")
+
+        eval_levels = tk.Frame(eval_card, bg=self.PANEL_ALT)
+        eval_levels.grid(row=5, column=0, sticky="w", pady=(6, 0))
+        ttk.Label(eval_levels, text="A Level", style="CardValue.TLabel").grid(row=0, column=0, sticky="w")
+        self.eval_search_level_spin = tk.Spinbox(
+            eval_levels,
+            from_=1,
+            to=10,
+            textvariable=self.eval_search_level_var,
+            width=4,
+            bg=self.PANEL_SOFT,
+            fg=self.TEXT,
+            insertbackground=self.TEXT,
+            readonlybackground=self.PANEL_SOFT,
+            buttonbackground=self.PANEL,
+            relief="flat",
+            highlightthickness=0,
+        )
+        self.eval_search_level_spin.grid(row=0, column=1, padx=(6, 12), sticky="w")
+
+        ttk.Label(eval_levels, text="B Level", style="CardValue.TLabel").grid(row=0, column=2, sticky="w")
+        self.eval_opponent_level_spin = tk.Spinbox(
+            eval_levels,
+            from_=1,
+            to=10,
+            textvariable=self.eval_opponent_level_var,
+            width=4,
+            bg=self.PANEL_SOFT,
+            fg=self.TEXT,
+            insertbackground=self.TEXT,
+            readonlybackground=self.PANEL_SOFT,
+            buttonbackground=self.PANEL,
+            relief="flat",
+            highlightthickness=0,
+        )
+        self.eval_opponent_level_spin.grid(row=0, column=3, padx=(6, 0), sticky="w")
+
+        eval_matches = tk.Frame(eval_card, bg=self.PANEL_ALT)
+        eval_matches.grid(row=6, column=0, sticky="w", pady=(6, 0))
+        ttk.Label(eval_matches, text="Matches", style="CardValue.TLabel").grid(row=0, column=0, sticky="w")
+        self.eval_matches_spin = tk.Spinbox(
+            eval_matches,
+            from_=1,
+            to=500,
+            textvariable=self.eval_matches_var,
+            width=6,
+            bg=self.PANEL_SOFT,
+            fg=self.TEXT,
+            insertbackground=self.TEXT,
+            readonlybackground=self.PANEL_SOFT,
+            buttonbackground=self.PANEL,
+            relief="flat",
+            highlightthickness=0,
+        )
+        self.eval_matches_spin.grid(row=0, column=1, padx=(8, 0), sticky="w")
+
+        self.eval_button = self._make_button(eval_card, "Run Evaluation", self._run_agent_evaluation)
+        self.eval_button.grid(row=7, column=0, sticky="w", pady=(8, 0))
+
+        ttk.Label(
+            eval_card,
+            text=f"Output: {os.path.basename(self.eval_output_path)}",
+            style="Muted.TLabel",
+        ).grid(row=8, column=0, sticky="w", pady=(6, 0))
+
+        ttk.Label(eval_card, textvariable=self.eval_progress_text_var, style="Muted.TLabel").grid(
+            row=9, column=0, sticky="w", pady=(6, 2)
+        )
+        self.eval_progress_bar = ttk.Progressbar(
+            eval_card,
+            orient="horizontal",
+            mode="determinate",
+            maximum=100.0,
+            variable=self.eval_progress_var,
+            length=280,
+        )
+        self.eval_progress_bar.grid(row=10, column=0, sticky="ew", pady=(0, 2))
+
+        ttk.Label(eval_card, textvariable=self.eval_game_progress_text_var, style="Muted.TLabel").grid(
+            row=11, column=0, sticky="w", pady=(6, 2)
+        )
+        self.eval_game_progress_bar = ttk.Progressbar(
+            eval_card,
+            orient="horizontal",
+            mode="determinate",
+            maximum=100.0,
+            variable=self.eval_game_progress_var,
+            length=280,
+        )
+        self.eval_game_progress_bar.grid(row=12, column=0, sticky="ew", pady=(0, 2))
+
         log_card = self._make_card(sidebar, "Move Log")
-        log_card.grid(row=5, column=0, sticky="nsew")
-        sidebar.rowconfigure(5, weight=1)
+        log_card.grid(row=6, column=0, sticky="nsew")
+        sidebar.rowconfigure(6, weight=1)
 
         self.log_box = tk.Listbox(
             log_card,
@@ -378,7 +567,7 @@ class OthelloUI(tk.Tk):
         self.after(20, lambda: self._maybe_play_ai_turn(force_once=True))
 
     def _sync_mode_controls(self) -> None:
-        """Show or hide difficulty dropdowns and CvC buttons to match the active mode."""
+        """Show or hide AI controls based on active game mode."""
         show_hvc = self.vs_computer.get() and not self.computer_vs_computer.get()
         show_cvc = self.computer_vs_computer.get()
 
@@ -386,34 +575,442 @@ class OthelloUI(tk.Tk):
             self.cvc_autoplay.set(False)
 
         black_state = "readonly" if show_cvc else "disabled"
-        if str(self.black_difficulty_combo.cget("state")) != black_state:
-            self.black_difficulty_combo.configure(state=black_state)
+        if str(self.black_agent_combo.cget("state")) != black_state:
+            self.black_agent_combo.configure(state=black_state)
+        self.black_level_spin.configure(state="normal" if show_cvc else "disabled")
 
         white_enabled = show_hvc or show_cvc
         white_state = "readonly" if white_enabled else "disabled"
-        if str(self.white_difficulty_combo.cget("state")) != white_state:
-            self.white_difficulty_combo.configure(state=white_state)
+        if str(self.white_agent_combo.cget("state")) != white_state:
+            self.white_agent_combo.configure(state=white_state)
+        self.white_level_spin.configure(state="normal" if white_enabled else "disabled")
 
         if show_cvc:
-            self.black_difficulty_label.grid()
-            self.black_difficulty_combo.grid()
-            self.white_difficulty_label.configure(text="White AI Difficulty")
-            self.white_difficulty_label.grid()
-            self.white_difficulty_combo.grid()
+            self.black_ai_frame.grid()
+            self.white_ai_title_var.set("White AI Agent")
+            self.white_ai_frame.grid()
             self.cvc_button_row.grid()
         elif show_hvc:
-            self.black_difficulty_label.grid_remove()
-            self.black_difficulty_combo.grid_remove()
-            self.white_difficulty_label.configure(text="AI Difficulty")
-            self.white_difficulty_label.grid()
-            self.white_difficulty_combo.grid()
+            self.black_ai_frame.grid_remove()
+            self.white_ai_title_var.set("AI Agent (White)")
+            self.white_ai_frame.grid()
             self.cvc_button_row.grid_remove()
         else:
-            self.black_difficulty_label.grid_remove()
-            self.black_difficulty_combo.grid_remove()
-            self.white_difficulty_label.grid_remove()
-            self.white_difficulty_combo.grid_remove()
+            self.black_ai_frame.grid_remove()
+            self.white_ai_frame.grid_remove()
             self.cvc_button_row.grid_remove()
+
+    @staticmethod
+    def _normalise_level(raw_value: int | str) -> int:
+        """Clamp a user-selected skill level into the inclusive range [1, 10]."""
+        try:
+            level = int(raw_value)
+        except (TypeError, ValueError):
+            level = 5
+        return max(1, min(10, level))
+
+    @staticmethod
+    def _skill_band(level: int) -> str:
+        """Return a coarse skill label for a numeric level."""
+        if level <= 3:
+            return "Poor"
+        if level <= 7:
+            return "Average"
+        return "Good"
+
+    @staticmethod
+    def _short_agent_name(name: str) -> str:
+        if name.startswith("Rule-based"):
+            return "Greedy"
+        return name
+
+    @staticmethod
+    def _wilson_interval(successes: int, trials: int, z: float = 1.96) -> tuple[float, float]:
+        """Return a Wilson score confidence interval for a binomial proportion."""
+        if trials <= 0:
+            return 0.0, 0.0
+        p_hat = successes / trials
+        denominator = 1.0 + (z * z) / trials
+        center = (p_hat + (z * z) / (2.0 * trials)) / denominator
+        margin = z * math.sqrt((p_hat * (1.0 - p_hat) + (z * z) / (4.0 * trials)) / trials) / denominator
+        return max(0.0, center - margin), min(1.0, center + margin)
+
+    @staticmethod
+    def _elo_from_score(score_rate: float) -> float:
+        """Estimate Elo difference from expected score rate in [0, 1]."""
+        bounded = min(max(score_rate, 1e-6), 1.0 - 1e-6)
+        return -400.0 * math.log10((1.0 / bounded) - 1.0)
+
+    def _on_ai_config_change(self, _: Optional[tk.Event] = None) -> None:
+        """React to agent and skill-level config changes in the sidebar controls."""
+        self.black_level_var.set(self._normalise_level(self.black_level_var.get()))
+        self.white_level_var.set(self._normalise_level(self.white_level_var.get()))
+        self._refresh_ui()
+        if self.computer_vs_computer.get() and self.cvc_autoplay.get():
+            self.after(80, self._maybe_play_ai_turn)
+
+    def _agent_for_config(self, agent_name: str, level: int) -> OthelloAgent:
+        """Build an AI instance from a selected agent type and skill level.
+
+        Levels 1-10 are mapped to concrete search budgets / heuristics.
+        """
+        lvl = self._normalise_level(level)
+        agent_key = agent_name.strip().lower()
+
+        if agent_key.startswith("rule-based"):
+            if lvl <= 3:
+                return GreedyAgent(difficulty="easy")
+            if lvl <= 7:
+                return GreedyAgent(difficulty="medium")
+
+            if lvl <= 8:
+                return GreedyAgent(difficulty="hard", heuristic=SimpleHeuristic())
+            if lvl == 9:
+                return GreedyAgent(difficulty="hard", heuristic=PositionalHeuristic())
+            return GreedyAgent(difficulty="hard", heuristic=SmartHeuristic())
+
+        if agent_key == "minimax":
+            depth = 2 + ((lvl - 1) * 5) // 9  # 2..7
+            time_limit = 1.0 + (lvl - 1) * 0.6
+            heuristic = (
+                SimpleHeuristic() if lvl <= 3 else PositionalHeuristic() if lvl <= 7 else SmartHeuristic()
+            )
+            return MinimaxAgent(max_depth=depth, heuristic=heuristic, time_limit=time_limit)
+
+        if agent_key == "mcts":
+            iterations = 60 + (lvl - 1) * 40
+            rollout_depth = 8 + (lvl - 1) // 2
+            return MCTSAgent(iterations=iterations, dept_roll=rollout_depth)
+
+        return GreedyAgent(difficulty="medium")
+
+    def _run_agent_evaluation(self) -> None:
+        """Run agent-vs-agent benchmarking and emit results to terminal and text file."""
+        agent_a_name = self.eval_search_agent_var.get()
+        agent_a_level = self._normalise_level(self.eval_search_level_var.get())
+        agent_b_name = self.eval_opponent_agent_var.get()
+        agent_b_level = self._normalise_level(self.eval_opponent_level_var.get())
+        matches = max(1, int(self.eval_matches_var.get()))
+
+        self.eval_progress_var.set(0.0)
+        self.eval_progress_text_var.set(f"Progress: 0 / {matches}")
+        self.eval_game_progress_var.set(0.0)
+        self.eval_game_progress_text_var.set("Current game: 0 / 60 plies")
+
+        agent_a = self._agent_for_config(agent_a_name, agent_a_level)
+        agent_b = self._agent_for_config(agent_b_name, agent_b_level)
+
+        agent_a_wins = 0
+        agent_b_wins = 0
+        draws = 0
+        agent_a_move_time = 0.0
+        agent_b_move_time = 0.0
+        agent_a_moves = 0
+        agent_b_moves = 0
+        agent_a_disc_diff_total = 0
+
+        black_wins = 0
+        white_wins = 0
+        agent_a_points_by_game: List[float] = []
+        agent_a_points_as_black = 0.0
+        agent_a_points_as_white = 0.0
+        games_agent_a_black = 0
+        games_agent_a_white = 0
+        game_lengths: List[int] = []
+        game_durations: List[float] = []
+
+        game_lines: List[str] = []
+        game_move_logs: List[str] = []
+
+        self.configure(cursor="watch")
+        self.eval_button.configure(state="disabled")
+        self.update_idletasks()
+
+        try:
+            for game_index in range(matches):
+                agent_a_is_black = (game_index % 2 == 0)
+                black_agent = agent_a if agent_a_is_black else agent_b
+                white_agent = agent_b if agent_a_is_black else agent_a
+                move_index = 0
+                current_game_moves: List[str] = []
+                game_start = time.perf_counter()
+
+                self.eval_game_progress_var.set(0.0)
+                self.eval_game_progress_text_var.set(
+                    f"Current game {game_index + 1}/{matches}: 0 / 60 plies"
+                )
+                self.update_idletasks()
+
+                black_agent.on_game_start()
+                white_agent.on_game_start()
+                game = OthelloGame()
+
+                while not game.is_game_over():
+                    legal = game.legal_moves()
+                    if not legal:
+                        passing_player = game.current_player
+                        opponent = game.opponent(game.current_player)
+                        if game.can_player_move(opponent):
+                            current_game_moves.append(
+                                f"pass: {PLAYER_NAMES[passing_player]} has no legal move"
+                            )
+                            game.current_player = opponent
+                            continue
+                        break
+
+                    current_player = game.current_player
+                    active = black_agent if game.current_player == BLACK else white_agent
+                    start = time.perf_counter()
+                    move = active.choose_move(game)
+                    elapsed = time.perf_counter() - start
+
+                    is_agent_a_turn = (
+                        (agent_a_is_black and game.current_player == BLACK)
+                        or ((not agent_a_is_black) and game.current_player == WHITE)
+                    )
+                    if is_agent_a_turn:
+                        agent_a_move_time += elapsed
+                        agent_a_moves += 1
+                    else:
+                        agent_b_move_time += elapsed
+                        agent_b_moves += 1
+
+                    if move is None or move not in legal:
+                        fallback_move = next(iter(legal.keys()))
+                        move_index += 1
+                        current_game_moves.append(
+                            (
+                                f"{move_index:02d}. {PLAYER_NAMES[current_player]:5} -> "
+                                f"{game.notation_for_move(fallback_move[0], fallback_move[1])} "
+                                f"(fallback)"
+                            )
+                        )
+                        game.apply_move(fallback_move[0], fallback_move[1])
+                    else:
+                        move_index += 1
+                        current_game_moves.append(
+                            (
+                                f"{move_index:02d}. {PLAYER_NAMES[current_player]:5} -> "
+                                f"{game.notation_for_move(move[0], move[1])}"
+                            )
+                        )
+                        game.apply_move(move[0], move[1])
+
+                    self.eval_game_progress_var.set(min(100.0, (move_index / 60.0) * 100.0))
+                    self.eval_game_progress_text_var.set(
+                        f"Current game {game_index + 1}/{matches}: {move_index} / 60 plies"
+                    )
+                    self.update_idletasks()
+
+                black_agent.on_game_end()
+                white_agent.on_game_end()
+
+                scores = game.count_discs()
+                agent_a_discs = scores[BLACK] if agent_a_is_black else scores[WHITE]
+                agent_b_discs = scores[WHITE] if agent_a_is_black else scores[BLACK]
+                diff = agent_a_discs - agent_b_discs
+                agent_a_disc_diff_total += diff
+
+                if diff > 0:
+                    agent_a_wins += 1
+                    agent_a_points = 1.0
+                    result = "Agent A wins"
+                elif diff < 0:
+                    agent_b_wins += 1
+                    agent_a_points = 0.0
+                    result = "Agent B wins"
+                else:
+                    draws += 1
+                    agent_a_points = 0.5
+                    result = "Draw"
+
+                if scores[BLACK] > scores[WHITE]:
+                    black_wins += 1
+                elif scores[WHITE] > scores[BLACK]:
+                    white_wins += 1
+
+                agent_a_points_by_game.append(agent_a_points)
+                if agent_a_is_black:
+                    games_agent_a_black += 1
+                    agent_a_points_as_black += agent_a_points
+                else:
+                    games_agent_a_white += 1
+                    agent_a_points_as_white += agent_a_points
+
+                game_lengths.append(move_index)
+                game_durations.append(time.perf_counter() - game_start)
+
+                game_lines.append(
+                    (
+                        f"Game {game_index + 1:03d}: Agent A as {'Black' if agent_a_is_black else 'White'} | "
+                        f"Score {agent_a_discs}-{agent_b_discs} | DiscDiff {diff:+d} | {result}"
+                    )
+                )
+                game_move_logs.append(
+                    "\n".join(
+                        [
+                            (
+                                f"Game {game_index + 1:03d} Moves "
+                                f"(Agent A as {'Black' if agent_a_is_black else 'White'}):"
+                            ),
+                            *(current_game_moves if current_game_moves else ["(no moves recorded)"]),
+                        ]
+                    )
+                )
+
+                self.eval_game_progress_var.set(100.0)
+                self.eval_game_progress_text_var.set(
+                    f"Current game {game_index + 1}/{matches}: complete ({move_index} plies)"
+                )
+                self.update_idletasks()
+
+                completed = game_index + 1
+                self.eval_progress_var.set((completed / matches) * 100.0)
+                self.eval_progress_text_var.set(f"Progress: {completed} / {matches}")
+                self.update_idletasks()
+
+            total_games = matches
+            agent_a_losses = agent_b_wins
+            agent_b_losses = agent_a_wins
+            agent_a_win_rate = (agent_a_wins / total_games) * 100.0
+            agent_b_win_rate = (agent_b_wins / total_games) * 100.0
+            agent_a_avg_diff = agent_a_disc_diff_total / total_games
+            agent_b_avg_diff = -agent_a_avg_diff
+            agent_a_avg_ms = (agent_a_move_time / agent_a_moves * 1000.0) if agent_a_moves else 0.0
+            agent_b_avg_ms = (agent_b_move_time / agent_b_moves * 1000.0) if agent_b_moves else 0.0
+
+            agent_a_score_rate = (agent_a_wins + 0.5 * draws) / total_games
+            if total_games > 1:
+                score_std = statistics.stdev(agent_a_points_by_game)
+                score_margin = 1.96 * (score_std / math.sqrt(total_games))
+            else:
+                score_margin = 0.0
+            score_ci_low = max(0.0, agent_a_score_rate - score_margin)
+            score_ci_high = min(1.0, agent_a_score_rate + score_margin)
+
+            decisive_games = agent_a_wins + agent_b_wins
+            decisive_wr = (agent_a_wins / decisive_games) if decisive_games else 0.0
+            wilson_low, wilson_high = self._wilson_interval(agent_a_wins, decisive_games)
+
+            elo_est = self._elo_from_score(agent_a_score_rate)
+            elo_low = self._elo_from_score(score_ci_low)
+            elo_high = self._elo_from_score(score_ci_high)
+
+            black_win_rate = black_wins / total_games
+            white_win_rate = white_wins / total_games
+            agent_a_black_score = (agent_a_points_as_black / games_agent_a_black) if games_agent_a_black else 0.0
+            agent_a_white_score = (agent_a_points_as_white / games_agent_a_white) if games_agent_a_white else 0.0
+
+            avg_game_len = statistics.mean(game_lengths) if game_lengths else 0.0
+            std_game_len = statistics.pstdev(game_lengths) if len(game_lengths) > 1 else 0.0
+            avg_game_sec = statistics.mean(game_durations) if game_durations else 0.0
+            std_game_sec = statistics.pstdev(game_durations) if len(game_durations) > 1 else 0.0
+
+            agent_a_label = f"{self._short_agent_name(agent_a_name)} L{agent_a_level} ({self._skill_band(agent_a_level)})"
+            agent_b_label = f"{self._short_agent_name(agent_b_name)} L{agent_b_level} ({self._skill_band(agent_b_level)})"
+
+            table_header = (
+                f"{'Agent':<30} {'Wins':>4} {'Losses':>6} {'Draws':>5} {'Win%':>7} "
+                f"{'AvgDiscDiff':>11} {'AvgMoveMs':>10}"
+            )
+            table_sep = "-" * len(table_header)
+            table_rows = [
+                f"{agent_a_label:<30} {agent_a_wins:>4} {agent_a_losses:>6} {draws:>5} {agent_a_win_rate:>6.1f}% {agent_a_avg_diff:>11.2f} {agent_a_avg_ms:>10.2f}",
+                f"{agent_b_label:<30} {agent_b_wins:>4} {agent_b_losses:>6} {draws:>5} {agent_b_win_rate:>6.1f}% {agent_b_avg_diff:>11.2f} {agent_b_avg_ms:>10.2f}",
+            ]
+
+            methods_used = [
+                "Evaluation methods:",
+                "- Color-balanced win rate (alternating first player)",
+                "- Average disc differential",
+                "- Average decision time per move (ms)",
+                "- Match score rate with 95% confidence interval",
+                "- Decisive-game win rate with Wilson 95% interval",
+                "- Elo difference estimate from score rate",
+                "- Color-split performance (as Black vs as White)",
+                "- Average game length (plies) and runtime (seconds)",
+            ]
+
+            advanced_metrics = [
+                "Extended Metrics:",
+                (
+                    f"- Agent A score rate: {agent_a_score_rate * 100.0:.1f}% "
+                    f"(95% CI: {score_ci_low * 100.0:.1f}% to {score_ci_high * 100.0:.1f}%)"
+                ),
+                (
+                    f"- Agent A decisive win rate: {decisive_wr * 100.0:.1f}% "
+                    f"(Wilson 95% CI: {wilson_low * 100.0:.1f}% to {wilson_high * 100.0:.1f}%) "
+                    f"over {decisive_games} decisive games"
+                ),
+                (
+                    f"- Elo estimate (Agent A - Agent B): {elo_est:+.1f} "
+                    f"(from score-rate CI: {elo_low:+.1f} to {elo_high:+.1f})"
+                ),
+                (
+                    f"- Baseline color bias: Black win rate {black_win_rate * 100.0:.1f}%, "
+                    f"White win rate {white_win_rate * 100.0:.1f}%"
+                ),
+                (
+                    f"- Agent A split score: as Black {agent_a_black_score * 100.0:.1f}% "
+                    f"vs as White {agent_a_white_score * 100.0:.1f}%"
+                ),
+                (
+                    f"- Average game length: {avg_game_len:.1f} plies (sd {std_game_len:.1f}); "
+                    f"Average game time: {avg_game_sec:.2f}s (sd {std_game_sec:.2f}s)"
+                ),
+            ]
+
+            table_text = "\n".join([table_header, table_sep, *table_rows])
+            report_lines = [
+                "Agent vs Agent Evaluation",
+                f"Agent A: {agent_a_label}",
+                f"Agent B: {agent_b_label}",
+                f"Total games: {total_games}",
+                "",
+                *methods_used,
+                "",
+                "Summary Table:",
+                table_text,
+                "",
+                *advanced_metrics,
+                "",
+                "Per-game Results:",
+                *game_lines,
+                "",
+                "Per-game Move Logs:",
+                *game_move_logs,
+            ]
+            report_text = "\n".join(report_lines)
+
+            print("\n" + table_text)
+            for metric_line in advanced_metrics:
+                print(metric_line)
+            print()
+
+            with open(self.eval_output_path, "w", encoding="utf-8") as report_file:
+                report_file.write(report_text)
+
+            messagebox.showinfo(
+                "Evaluation Complete",
+                (
+                    f"Completed {total_games} games.\n"
+                    f"Summary table printed to terminal.\n"
+                    f"Saved report to:\n{self.eval_output_path}"
+                ),
+            )
+            self.eval_progress_var.set(100.0)
+            self.eval_progress_text_var.set(f"Progress: {total_games} / {total_games} (done)")
+            self.eval_game_progress_var.set(100.0)
+            self.eval_game_progress_text_var.set("Current game: done")
+
+        except Exception as exc:  # pragma: no cover - UI error path
+            self.eval_progress_text_var.set("Progress: failed")
+            self.eval_game_progress_text_var.set("Current game: failed")
+            messagebox.showerror("Evaluation Error", f"Failed to run evaluation: {exc}")
+        finally:
+            self.eval_button.configure(state="normal")
+            self.configure(cursor="")
+            self.update_idletasks()
 
     def _is_ai_turn(self) -> bool:
         """Return `True` if the AI should make the next move in the current mode."""
@@ -422,12 +1019,6 @@ class OthelloUI(tk.Tk):
         if self.computer_vs_computer.get():
             return True
         return self.vs_computer.get() and self.game.current_player == WHITE
-
-    def _on_difficulty_change(self, _: tk.Event) -> None:
-        """React to a difficulty combobox selection change."""
-        self._refresh_ui()
-        if self.computer_vs_computer.get() and self.cvc_autoplay.get():
-            self.after(80, self._maybe_play_ai_turn)
 
     def _new_game(self) -> None:
         """Reset the board to the opening position and clear the move log."""
@@ -560,29 +1151,6 @@ class OthelloUI(tk.Tk):
 
         self.after(180, self._maybe_play_ai_turn)
 
-    def _agent_for_difficulty(self, difficulty: str) -> OthelloAgent:
-        """Return the appropriate AI agent for the given difficulty level.
-
-        Difficulty mapping:
-
-        - `"easy"`   → :class:`~search.greedy.GreedyAgent` (random moves)
-        - `"medium"` → :class:`~search.greedy.GreedyAgent` (greedy heuristic)
-        - `"hard"`   → :class:`~search.minimax.MinimaxAgent` (depth-6 alpha-beta)
-
-        Args:
-            difficulty: One of `"easy"`, `"medium"`, or `"hard"`
-                        (case-insensitive).
-
-        Returns:
-            A fresh :class:`~search.model.OthelloAgent` instance.
-        """
-        level = difficulty.strip().lower()
-        if level == "hard":
-            # Depth-6 iterative-deepening alpha-beta with a 10-second budget.
-            return MinimaxAgent(max_depth=6, time_limit=10.0)
-        # Easy and medium use the fast greedy agent at the matching level.
-        return GreedyAgent(difficulty=level)
-
     def _maybe_play_ai_turn(self, force_once: bool = False) -> None:
         """Trigger one AI move if the current game state calls for it.
 
@@ -613,14 +1181,15 @@ class OthelloUI(tk.Tk):
         if not self._is_ai_turn():
             return
 
-        # Resolve which difficulty level applies to the side currently moving.
-        difficulty = (
-            self.black_difficulty_var.get()
-            if self.game.current_player == BLACK
-            else self.white_difficulty_var.get()
-        )
+        # Resolve the active side's selected AI type and level.
+        if self.game.current_player == BLACK:
+            agent_name = self.black_agent_var.get()
+            level = self._normalise_level(self.black_level_var.get())
+        else:
+            agent_name = self.white_agent_var.get()
+            level = self._normalise_level(self.white_level_var.get())
 
-        agent = self._agent_for_difficulty(difficulty)
+        agent = self._agent_for_config(agent_name, level)
         move  = agent.choose_move(self.game)
 
         if move is None:
@@ -633,14 +1202,26 @@ class OthelloUI(tk.Tk):
         """Synchronise all sidebar labels and button states with the current game state."""
         scores = self.game.count_discs()
         self._sync_mode_controls()
+        black_level = self._normalise_level(self.black_level_var.get())
+        white_level = self._normalise_level(self.white_level_var.get())
+        self.black_level_var.set(black_level)
+        self.white_level_var.set(white_level)
+        self.black_skill_var.set(f"{self._skill_band(black_level)} skill (L{black_level})")
+        self.white_skill_var.set(f"{self._skill_band(white_level)} skill (L{white_level})")
+
         self.status_var.set(self.game.status_text())
         self.turn_var.set("")
         if self.computer_vs_computer.get():
             self.mode_var.set(
-                f"Computer vs Computer - Black {self.black_difficulty_var.get()} / White {self.white_difficulty_var.get()}"
+                (
+                    f"CvC - B:{self._short_agent_name(self.black_agent_var.get())} L{black_level} "
+                    f"vs W:{self._short_agent_name(self.white_agent_var.get())} L{white_level}"
+                )
             )
         elif self.vs_computer.get():
-            self.mode_var.set(f"Human vs Computer - AI {self.white_difficulty_var.get()}")
+            self.mode_var.set(
+                f"HvC - {self._short_agent_name(self.white_agent_var.get())} L{white_level}"
+            )
         else:
             self.mode_var.set("Human vs Human")
         self.score_var.set(

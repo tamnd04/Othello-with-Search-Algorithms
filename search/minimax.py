@@ -297,7 +297,7 @@ def get_best_move_minimax(
     game: OthelloGame,
     max_depth: int,
     heuristic_func: Callable[[OthelloGame], float],
-    time_limit: float,
+    time_limit: float = DEFAULT_MINIMAX_TIMELIMIT,
 ) -> Tuple[Optional[Coord], float]:
     """Find the best move using Iterative-Deepening Alpha-Beta Minimax.
 
