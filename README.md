@@ -1,78 +1,125 @@
-# Othello / Reversi — Python GUI Project
+# Othello with Search Algorithms
 
-A polished Python/Tkinter Othello (Reversi) game with animated disc flips, undo and hint tools, and flexible play modes including Human vs Human, Human vs Computer, and Computer vs Computer with adjustable AI difficulty.
+A Python implementation of Othello (Reversi) featuring an interactive Tkinter GUI and multiple AI search agents.
 
-## Project Structure
+## What this project includes
+
+- Complete 8x8 Othello engine with legal move generation, pass logic, undo support, and game-over detection
+- GUI play modes:
+  - Human vs Human
+  - Human vs Computer
+  - Computer vs Computer (Auto Play/Pause and Step)
+- AI agents:
+  - Rule-based Greedy
+  - Minimax with alpha-beta pruning
+  - Monte Carlo Tree Search (MCTS)
+- Built-in evaluation panel in the GUI with:
+  - Overall match progress bar
+  - Per-game ply progress bar
+  - Terminal summary table
+  - Report export to `agent_evaluation_report.txt`
+
+## Repository structure
 
 ```text
 .
-├── heuristic
-│   ├── base.py             # base class from which all heuristics inherit
-│   ├── positional.py
-│   ├── simple.py
-│   ├── smart.py
-│   └── weight.py
-├── LICENSE
-├── main.py                 # CLI entry point
-├── othello
-│   ├── constants.py        # tunable parameters for search agents
-│   ├── engine.py
-│   └── ui.py
-├── README.md
-├── search
-│   ├── greedy.py
-│   ├── mcts.py
-│   ├── minimax.py
-│   └── model.py            # base class from which all agents inherit
-└── tests
-    ├── test_engine.py
-    ├── test_minimax.py
-    └── tournament.py       # runs a series of games between two agents and reports the results
+|-- main.py
+|-- README.md
+|-- LICENSE
+|-- heuristic/
+|   |-- __init__.py
+|   |-- base.py
+|   |-- positional.py
+|   |-- simple.py
+|   |-- smart.py
+|   `-- weight.py
+|-- othello/
+|   |-- __init__.py
+|   |-- constants.py
+|   |-- engine.py
+|   `-- ui.py
+|-- search/
+|   |-- greedy.py
+|   |-- mcts.py
+|   |-- minimax.py
+|   `-- model.py
+`-- tests/
+    |-- test_engine.py
+    |-- test_minimax.py
+    `-- tournament.py
 ```
-
-## Features
-
-### Game engine
-- Standard 8x8 Othello board
-- Legal move detection in all 8 directions
-- Automatic disc flipping
-- Turn switching and automatic pass handling
-- Game-over detection when neither side can move
-- Winner detection and score counting
-- Undo support through state snapshots
-
-### Interface and game modes
-- Modern Tkinter UI with board labels, hover highlight, move log, and score panel
-- Flip animation for captured discs
-- Hint toggle button (enabled by default)
-- Human vs Human mode
-- Human vs Computer mode with selectable AI difficulty
-- Computer vs Computer mode with separate Black and White AI difficulty
-- Auto Play / Pause and Step controls for Computer vs Computer simulations
 
 ## Requirements
 
-- Python 3.10+ recommended
+- Python 3.10+
+- No third-party dependencies (standard library only)
 
-## Run
+## Run the GUI
 
 ```bash
-# Run the Othello GUI application
 python main.py
-
-# Tournament - models with default heuristics
-python main.py --tournament --model1 minimax --model2 greedy
-
-# Tournament - models with explicit heuristics
-python main.py --tournament --model1 minimax --heuristic1 positional --model2 greedy --heuristic2 weight
 ```
 
-## Add a new model
-1. Implement the model in a new file under `search/`, e.g. `search/new.py` with a class `NewAgent` that inherits from `OthelloAgent`.
-2. Import the new model in `search/__init__.py` and add it to `__all__`.
-3. Import the new model in `main.py` and add it to `_MODEL_CHOICES` and the model factory logic in `main()`.
+## Tournament mode (CLI)
 
-## Add a new heuristic
-1. Implement the heuristic in a new file under `heuristic/`, e.g. `heuristic/my_heuristic.py` with a class `MyHeuristic` that inherits from `OthelloHeuristic`.
-2. Import the new heuristic in `heuristic/__init__.py` and add it to `__all__`.
-3. Add the new heuristic to `_HEURISTIC_CHOICES` and the heuristic factory logic in `main()`.
+Run head-to-head AI matches directly from the command line.
+
+Models:
+- `greedy`
+- `minimax`
+- `mcts`
+
+Heuristics:
+- `simple`
+- `smart`
+- `positional`
+- `weight`
+
+Note: `mcts` does not use static board heuristics, so it cannot be combined with `--heuristic1` or `--heuristic2`.
+
+Examples:
+
+```bash
+# Default 10 games
+python main.py --tournament --model1 minimax --model2 greedy
+
+# 20 games
+python main.py --tournament --model1 mcts --model2 minimax --matches 20
+
+# Explicit heuristics for supported models
+python main.py --tournament --model1 minimax --heuristic1 positional --model2 greedy --heuristic2 weight --matches 30
+```
+
+## GUI agent evaluation output
+
+The GUI Agent Evaluation section can benchmark one configured agent against another and reports:
+
+- Wins/losses/draws and win rate
+- Average disc differential
+- Average move time
+- Score-rate confidence interval
+- Wilson interval for decisive-game win rate
+- Elo difference estimate
+- Color-split performance (as Black vs as White)
+- Average game length and game runtime
+- Per-game move logs
+
+A detailed report is saved to `agent_evaluation_report.txt` in the project root.
+
+## Run tests
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+## Extending the project
+
+Add a new agent:
+1. Create a new class in `search/` implementing the `OthelloAgent` interface.
+2. Register it in the CLI factory in `main.py`.
+3. Register it in GUI mapping logic in `othello/ui.py` if you want it selectable in the app.
+
+Add a new heuristic:
+1. Create a new class in `heuristic/` implementing the heuristic base interface.
+2. Register it in heuristic factory logic in `main.py`.
+3. Wire it into agent configuration logic as needed.
